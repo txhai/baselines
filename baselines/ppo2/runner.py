@@ -16,12 +16,17 @@ class Runner(AbstractEnvRunner):
         self.lam = lam
         # Discount rate
         self.gamma = gamma
+        self.run_steps = 0
+        self.run_rewards = 0
 
     def run(self):
         # Here, we init the lists that will contain the mb of experiences
         mb_obs, mb_rewards, mb_actions, mb_values, mb_dones, mb_neglogpacs = [],[],[],[],[],[]
         mb_states = self.states
         epinfos = []
+
+        self.run_steps = 0
+        self.run_rewards = 0
         # For n in range number of steps
         for _ in range(self.nsteps):
             # Given observations, get action value and neglopacs
@@ -36,10 +41,13 @@ class Runner(AbstractEnvRunner):
             # Take actions in env and look the results
             # Infos contains a ton of useful informations
             self.obs[:], rewards, self.dones, infos = self.env.step(actions)
+            self.run_steps += 1
             for info in infos:
                 maybeepinfo = info.get('episode')
                 if maybeepinfo: epinfos.append(maybeepinfo)
             mb_rewards.append(rewards)
+            self.run_rewards += np.max(rewards)
+
         #batch of steps to batch of rollouts
         mb_obs = np.asarray(mb_obs, dtype=self.obs.dtype)
         mb_rewards = np.asarray(mb_rewards, dtype=np.float32)

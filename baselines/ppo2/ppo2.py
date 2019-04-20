@@ -6,6 +6,10 @@ from baselines import logger
 from collections import deque
 from baselines.common import explained_variance, set_global_seeds
 from baselines.common.policies import build_policy
+
+from tensorboardX import SummaryWriter
+from baselines.mbrl_eval import evaluate_ppo2_policy, MyLogger
+
 try:
     from mpi4py import MPI
 except ImportError:
@@ -79,6 +83,14 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None, nsteps=2
 
     set_global_seeds(seed)
 
+    # Get env_id
+    env_id_ = network_kwargs.pop('env_id_', None)
+    # Log
+    log_dir = os.path.join(os.getenv('OPENAI_LOGDIR'), 'PPO2_exp')
+    os.makedirs(log_dir, exist_ok=True)
+    writer = SummaryWriter(log_dir)
+    my_eval_logger = MyLogger(log_dir, 'policy_eval')
+
     if isinstance(lr, float): lr = constfn(lr)
     else: assert callable(lr)
     if isinstance(cliprange, float): cliprange = constfn(cliprange)
@@ -120,7 +132,7 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None, nsteps=2
 
     # Start total timer
     tfirststart = time.perf_counter()
-
+    t = 0
     nupdates = total_timesteps//nbatch
     for update in range(1, nupdates+1):
         assert nbatch % nminibatches == 0
@@ -135,6 +147,16 @@ def learn(*, network, env, total_timesteps, eval_env = None, seed=None, nsteps=2
         obs, returns, masks, actions, values, neglogpacs, states, epinfos = runner.run() #pylint: disable=E0632
         if eval_env is not None:
             eval_obs, eval_returns, eval_masks, eval_actions, eval_values, eval_neglogpacs, eval_states, eval_epinfos = eval_runner.run() #pylint: disable=E0632
+        t += runner.run_steps
+        writer.add_scalar('Episode Return/Current episode', runner.run_rewards, t)
+
+        # MBRL Evaluation metric
+        mean_po_evaluation = evaluate_ppo2_policy(env_id_, runner.model)
+        print("\n----------------------------------------")
+        print("Eval at step: {}, reward: {}".format(t, mean_po_evaluation))
+        print("----------------------------------------")
+        writer.add_scalar("Episode Return/Evaluation", mean_po_evaluation, t)
+        my_eval_logger.write(t, mean_po_evaluation)
 
         epinfobuf.extend(epinfos)
         if eval_env is not None:
