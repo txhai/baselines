@@ -10,6 +10,8 @@ from baselines.ddpg.noise import AdaptiveParamNoiseSpec, NormalActionNoise, Orns
 from baselines.common import set_global_seeds
 import baselines.common.tf_util as U
 
+from tensorboardX import SummaryWriter
+from baselines.mbrl_eval import evaluate_ddpg_policy, MyLogger
 from baselines import logger
 import numpy as np
 
@@ -45,6 +47,14 @@ def learn(network, env,
           **network_kwargs):
 
     set_global_seeds(seed)
+
+    # Get env_id
+    env_id_ = network_kwargs.pop('env_id_', None)
+    # Log
+    log_dir = os.path.join(os.getenv('OPENAI_LOGDIR'), 'DDPG_exp')
+    os.makedirs(log_dir, exist_ok=True)
+    writer = SummaryWriter(log_dir)
+    my_eval_logger = MyLogger(log_dir, 'policy_eval')
 
     if total_timesteps is not None:
         assert nb_epochs is None
@@ -125,6 +135,8 @@ def learn(network, env,
     epoch_qs = []
     epoch_episodes = 0
     for epoch in range(nb_epochs):
+        another_ep_reward = 0
+
         for cycle in range(nb_epoch_cycles):
             # Perform rollouts.
             if nenvs > 1:
@@ -147,6 +159,7 @@ def learn(network, env,
                 if rank == 0 and render:
                     env.render()
                 episode_reward += r
+                another_ep_reward += np.max(r)
                 episode_step += 1
 
                 # Book-keeping.
@@ -205,6 +218,17 @@ def learn(network, env,
                             eval_episode_rewards.append(eval_episode_reward[d])
                             eval_episode_rewards_history.append(eval_episode_reward[d])
                             eval_episode_reward[d] = 0.0
+
+        # Log ep reward
+        writer.add_scalar('Episode Return/Current episode', another_ep_reward, t)
+
+        # MBRL Evaluation metric after each epoch
+        mean_po_evaluation = evaluate_ddpg_policy(env_id_, agent, max_action)
+        print("\n----------------------------------------")
+        print("Eval at step: {}, reward: {}".format(t, mean_po_evaluation))
+        print("----------------------------------------")
+        writer.add_scalar("Episode Return/Evaluation", mean_po_evaluation, t)
+        my_eval_logger.write(t, mean_po_evaluation)
 
         if MPI is not None:
             mpi_size = MPI.COMM_WORLD.Get_size()

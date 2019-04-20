@@ -73,6 +73,8 @@ def train(args, extra_args):
 
     print('Training {} on {}:{} with arguments \n{}'.format(args.alg, env_type, env_id, alg_kwargs))
 
+    alg_kwargs['env_id_'] = env_id
+
     model = learn(
         env=env,
         seed=seed,
